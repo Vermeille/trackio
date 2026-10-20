@@ -112,8 +112,8 @@
   let pollTimer = $state(null);
   let mutationStatus = $state({
     spaces: false,
-    allowed: true,
-    auth: "local",
+    allowed: false,
+    auth: "none",
   });
   let mutationPollTimer = $state(null);
   let appBootstrapReady = $state(false);
@@ -353,7 +353,7 @@
         auth: s.auth ?? "none",
       };
     } catch {
-      mutationStatus = { spaces: false, allowed: true, auth: "local" };
+      mutationStatus = { spaces: false, allowed: false, auth: "none" };
     }
   }
 
@@ -724,7 +724,14 @@
           onOpenVersion={openArtifactVersion}
         />
       {:else if currentPage === "settings"}
-        <Settings {spaceId} selectedProject={selectedProject} {projects} />
+        <Settings
+          {spaceId}
+          selectedProject={selectedProject}
+          {projects}
+          {mutationStatus}
+          {readOnlySource}
+          onWriteAccessChange={refreshMutationAccess}
+        />
       {/if}
     </div>
   </div>

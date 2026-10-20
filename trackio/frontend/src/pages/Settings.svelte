@@ -1,11 +1,25 @@
 <script>
+  import { onMount } from "svelte";
+  import { getRunMutationStatus } from "../lib/api.js";
   import { copyTextToClipboard } from "../lib/clipboard.js";
+  import {
+    clearWriteToken,
+    getWriteToken,
+    saveWriteToken,
+  } from "../lib/urlTokens.js";
   import {
     getThemePreference,
     setThemePreference,
   } from "../lib/theme.js";
 
-  let { spaceId = null, selectedProject = null, projects = [] } = $props();
+  let {
+    spaceId = null,
+    selectedProject = null,
+    projects = [],
+    mutationStatus = { spaces: false, allowed: false, auth: "none" },
+    readOnlySource = null,
+    onWriteAccessChange,
+  } = $props();
 
   let themeChoice = $state(getThemePreference());
   let copiedIdx = $state(null);
@@ -13,6 +27,44 @@
   let selectedAgent = $state("claude");
   let agentCopied = $state(false);
   let exampleCopied = $state(false);
+  let writeTokenInput = $state("");
+  let writeTokenPresent = $state(false);
+  let writeTokenError = $state("");
+  let savingWriteToken = $state(false);
+
+  onMount(() => {
+    writeTokenPresent = !!getWriteToken();
+  });
+
+  async function handleSaveWriteToken(event) {
+    event.preventDefault();
+    const token = writeTokenInput.trim();
+    if (!token || savingWriteToken) return;
+    savingWriteToken = true;
+    writeTokenError = "";
+    try {
+      const valid = await saveWriteToken(token, getRunMutationStatus);
+      if (valid) {
+        writeTokenInput = "";
+      } else {
+        writeTokenError = "This server rejected the write token.";
+      }
+    } catch {
+      writeTokenError = "Could not verify the token. Previous access was restored.";
+    } finally {
+      writeTokenPresent = !!getWriteToken();
+      savingWriteToken = false;
+      await onWriteAccessChange?.();
+    }
+  }
+
+  async function handleClearWriteToken() {
+    clearWriteToken();
+    writeTokenPresent = false;
+    writeTokenInput = "";
+    writeTokenError = "";
+    await onWriteAccessChange?.();
+  }
 
   const agents = [
     { id: "claude", label: "Claude Code", flag: "--claude" },
@@ -140,6 +192,51 @@
           {/each}
         </div>
       </section>
+
+      {#if !mutationStatus.spaces && mutationStatus.auth !== "static" && !readOnlySource}
+        <section class="settings-section">
+          <h3 class="section-title">Write access</h3>
+          <p class="section-desc">
+            Enter this server's <code>TRACKIO_WRITE_TOKEN</code> to enable renaming and
+            deleting runs. The token is stored in a browser cookie for seven days.
+          </p>
+          <p class="write-access-status" class:granted={mutationStatus.allowed} role="status">
+            {mutationStatus.allowed ? "Write access enabled" : "Read-only access"}
+          </p>
+          <form onsubmit={handleSaveWriteToken}>
+            <label class="selector-label" for="write-token">Write token</label>
+            <div class="write-token-controls">
+              <input
+                id="write-token"
+                class="write-token-input"
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder={writeTokenPresent ? "Saved token (enter to replace)" : "Enter write token"}
+                bind:value={writeTokenInput}
+              />
+              <button
+                class="write-token-btn"
+                type="submit"
+                disabled={savingWriteToken || !writeTokenInput.trim()}
+              >
+                {savingWriteToken ? "Checking…" : "Save token"}
+              </button>
+              {#if writeTokenPresent}
+                <button
+                  class="write-token-btn secondary"
+                  type="button"
+                  disabled={savingWriteToken}
+                  onclick={handleClearWriteToken}
+                >Clear</button>
+              {/if}
+            </div>
+          </form>
+          {#if writeTokenError}
+            <p class="write-token-error" role="alert">{writeTokenError}</p>
+          {/if}
+        </section>
+      {/if}
 
       <section class="settings-section">
         <h3 class="section-title">CLI Reference</h3>
@@ -310,6 +407,58 @@
   }
   .section-desc strong {
     color: var(--color-accent, #f97316);
+  }
+
+  .write-access-status {
+    margin: 0 0 12px;
+    color: var(--body-text-color-subdued, #6b7280);
+    font-size: var(--text-sm, 12px);
+  }
+  .write-access-status.granted {
+    color: var(--color-accent, #f97316);
+  }
+  .write-token-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .write-token-input {
+    flex: 1 1 180px;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color-primary, #e5e7eb);
+    border-radius: var(--radius-md, 4px);
+    background: var(--background-fill-primary, white);
+    color: var(--body-text-color, #1f2937);
+    font-size: var(--text-sm, 12px);
+  }
+  .write-token-input:focus {
+    outline: none;
+    border-color: var(--color-accent, #f97316);
+  }
+  .write-token-btn {
+    padding: 8px 12px;
+    border: none;
+    border-radius: var(--radius-md, 4px);
+    background: var(--color-accent, #f97316);
+    color: white;
+    font-size: var(--text-sm, 12px);
+    cursor: pointer;
+  }
+  .write-token-btn.secondary {
+    background: var(--background-fill-secondary, #f3f4f6);
+    color: var(--body-text-color, #1f2937);
+    border: 1px solid var(--border-color-primary, #e5e7eb);
+  }
+  .write-token-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .write-token-error {
+    margin-top: 8px;
+    font-size: var(--text-sm, 12px);
+    color: var(--error-text, #b91c1c);
   }
 
   .theme-switcher {
